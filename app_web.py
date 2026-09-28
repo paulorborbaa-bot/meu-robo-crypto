@@ -138,7 +138,9 @@ def executar_scanner():
         p = escolhido['preco']
         st = escolhido['stop']
         tg = escolhido['target']
-      adicionar_log(f"🔥 [ENTRADA EXECUTADA] {escolhido['par']} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}")
+        par_nome = escolhido['par']
+        msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}"
+        adicionar_log(msg_log)
     else:
         adicionar_log("✅ Escaneamento concluído: Mercado sem oportunidades dentro do filtro no momento.")
 
