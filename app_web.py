@@ -20,7 +20,7 @@ estado_bot = {
     "logs": ["🤖 Servidor Web V3 Crypto-Max iniciado na Nuvem. Aguardando comando..."]
 }
 
-# Configuração da Exchange com timeout curto
+# Configuração da Exchange com timeout para evitar travamentos
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'timeout': 10000
@@ -93,10 +93,10 @@ def executar_scanner():
     try:
         adicionar_log("🔍 A iniciar varredura de mercado...")
         
-        # Leitura do BTC
+        # Leitura e análise do Bitcoin (Filtro Macro)
         df_btc = buscar_dados('BTC/USDT')
         if df_btc is None:
-            adicionar_log("⚠️ Não foi possível obter dados do BTC. Tentando na próxima rodada.")
+            adicionar_log("⚠️ Falha ao obter dados do BTC. A tentar novamente na próxima rodada.")
             estado_bot["em_execucao"] = False
             return
             
@@ -105,21 +105,21 @@ def executar_scanner():
         btc_ema200 = df_btc['ema_200'].iloc[-1]
         
         if btc_close < btc_ema200:
-            adicionar_log(f"🛑 [TRAVA MACRO] BTC em baixa (${btc_close:.2f} <${btc_ema200:.2f}). Entradas bloqueadas.")
+            adicionar_log(f"🛑 [TRAVA MACRO ACTIVADA] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Operações bloqueadas.")
             estado_bot["em_execucao"] = False
             return
 
         if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
-            adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar posições.")
+            adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar posições abertas.")
             estado_bot["em_execucao"] = False
             return
 
         candidatos = []
-        adicionar_log(f"📊 Verificando {len(universo_cripto)} pares de moedas...")
+        adicionar_log(f"📊 A analisar {len(universo_cripto)} paridades selecionadas...")
         
-        for index, par in enumerate(universo_cripto, 1):
+        for par in universo_cripto:
             if not estado_bot["rodando"]:
-                adicionar_log("⏹️ Varredura interrompida pelo usuário.")
+                adicionar_log("⏹️ Varredura interrompida pelo utilizador.")
                 break
                 
             if par in estado_bot["posicoes_ativas"]:
@@ -157,13 +157,13 @@ def executar_scanner():
             st = escolhido['stop']
             tg = escolhido['target']
             par_nome = escolhido['par']
-            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}"
+            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}"
             adicionar_log(msg_log)
         else:
-            adicionar_log("✅ Varredura concluída: Nenhuma oportunidade identificada neste ciclo.")
+            adicionar_log("✅ Varredura concluída: Nenhuma oportunidade encontrada dentro dos parâmetros atuais.")
             
     except Exception as e:
-        adicionar_log(f"⚠️ Erro durante a varredura: {str(e)}")
+        adicionar_log(f"⚠️ Erro durante a execução da varredura: {str(e)}")
     finally:
         estado_bot["em_execucao"] = False
 
@@ -176,7 +176,7 @@ def motor_robo():
             t = threading.Thread(target=executar_scanner)
             t.start()
             t.join(timeout=120)  # Limite máximo de 2 minutos por ciclo
-            time.sleep(30)       # Aguarda 30 segundos antes do próximo ciclo
+            time.sleep(30)       # Intervalo de 30 segundos entre varreduras
         else:
             time.sleep(2)
 
@@ -268,7 +268,7 @@ HTML_TEMPLATE = """
                 terminal.innerHTML = data.logs.map(log => `<div class="log-line">${log}</div>`).join('');
                 terminal.scrollTop = terminal.scrollHeight;
             } catch (e) {
-                console.error("Erro ao atualizar painel:", e);
+                console.error("Erro ao atualizar o painel:", e);
             }
         }
 
