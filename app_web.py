@@ -83,7 +83,6 @@ def calcular_indicadores(df):
 def executar_scanner():
     adicionar_log("🔍 Escaneando as 20 moedas no mercado...")
     
-    # 1. Trava Macro (BTC)
     df_btc = buscar_dados('BTC/USDT')
     if df_btc is None:
         adicionar_log("⚠️ Erro de conexão ao buscar BTC na Binance.")
@@ -97,12 +96,10 @@ def executar_scanner():
         adicionar_log(f"🛑 [TRAVA MACRO] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Novas entradas bloqueadas.")
         return
 
-    # 2. Trava de Carteira
     if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
         adicionar_log("🔒 Limite máximo de 3 posições simultâneas mantido. Monitorando posições abertas.")
         return
 
-    # 3. Varredura dos Ativos
     candidatos = []
     for par in universo_cripto:
         if not estado_bot["rodando"]:
@@ -138,7 +135,10 @@ def executar_scanner():
         candidatos.sort(key=lambda x: x['adx'], reverse=True)
         escolhido = candidatos[0]
         estado_bot["posicoes_ativas"][escolhido['par']] = escolhido
-        adicionar_log(f"🔥 [ENTRADA EXECUTADA] {escolhido['par']} | Entrada: ${escolhido['preco']:.4f} | Stop: ${escolhido['stop']:.4f} \vert{} Alvo:${escolhido['target']:.4f}")
+        p = escolhido['preco']
+        st = escolhido['stop']
+        tg = escolhido['target']
+        adicionar_log(f"🔥 [ENTRADA EXECUTADA] {escolhido['par']} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}")
     else:
         adicionar_log("✅ Escaneamento concluído: Mercado sem oportunidades dentro do filtro no momento.")
 
@@ -175,7 +175,7 @@ HTML_TEMPLATE = """
         .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 15px; margin-bottom: 20px; }
         .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .card { background-color: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
-        .card h3 { margin: 0 0 10px 0; font-size: 13px; color: #94a3b8; text-transform: uppercase; tracking: 1px; }
+        .card h3 { margin: 0 0 10px 0; font-size: 13px; color: #94a3b8; text-transform: uppercase; }
         .card .value { font-size: 26px; font-weight: bold; color: #38bdf8; }
         .controls { display: flex; gap: 10px; margin-bottom: 20px; }
         .btn { padding: 12px 24px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; transition: 0.2s; }
