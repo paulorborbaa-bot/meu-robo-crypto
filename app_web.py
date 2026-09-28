@@ -1,10 +1,7 @@
 import os
 import time
-import threading
 from flask import Flask, render_template_string, jsonify
 import ccxt
-import pandas as pd
-import numpy as np
 
 app = Flask(__name__)
 
@@ -13,17 +10,17 @@ app = Flask(__name__)
 # ==========================================
 estado_bot = {
     "rodando": False,
-    "em_execucao": False,
     "saldo": 50.00,
     "max_posicoes": 3,
     "posicoes_ativas": {},
-    "logs": ["🤖 Servidor Web V3 Crypto-Max iniciado na Nuvem. Aguardando comando..."]
+    "logs": ["🤖 Servidor Web V3 Crypto-Max iniciado na Nuvem. Aguardando comando..."],
+    "indice_moeda": 0
 }
 
-# Configuração da Exchange com timeout rápido para não travar
+# Inicialização simplificada da Binance
 exchange = ccxt.binance({
     'enableRateLimit': True,
-    'timeout': 7000
+    'timeout': 5000
 })
 
 universo_cripto = [
@@ -35,155 +32,26 @@ universo_cripto = [
 def adicionar_log(msg):
     timestamp = time.strftime("[%H:%M:%S]")
     estado_bot["logs"].append(f"{timestamp} {msg}")
-    if len(estado_bot["logs"]) > 80:
+    if len(estado_bot["logs"]) > 50:
         estado_bot["logs"].pop(0)
 
-# ==========================================
-# CÁLCULOS E INDICADORES TÉCNICOS
-# ==========================================
-def buscar_dados(simbolo, timeframe='1h', limit=200):
-    try:
-        ohlcv = exchange.fetch_ohlcv(simbolo, timeframe=timeframe, limit=limit)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('timestamp', inplace=True)
-        return df
-    except Exception:
-        return None
-
-def calcular_indicadores(df):
-    df = df.copy()
-    df['ema_9'] = df['close'].ewm(span=9, adjust=False).mean()
-    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
-    df['ema_200'] = df['close'].ewm(span=200, adjust=False).mean()
-    
-    delta = df['close'].diff()
-    ganho = (delta.where(delta > 0, 0)).rolling(14).mean()
-    perda = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = ganho / (perda + 1e-9)
-    df['rsi'] = 100 - (100 / (1 + rs))
-    
-    high_low = df['high'] - df['low']
-    high_close = (df['high'] - df['close'].shift()).abs()
-    low_close = (df['low'] - df['close'].shift()).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df['atr'] = tr.rolling(14).mean()
-    
-    up = df['high'] - df['high'].shift()
-    down = df['low'].shift() - df['low']
-    p_dm = np.where((up > down) & (up > 0), up, 0.0)
-    m_dm = np.where((down > up) & (down > 0), down, 0.0)
-    tr_s = tr.rolling(14).sum()
-    p_di = 100 * (pd.Series(p_dm, index=df.index).rolling(14).sum() / (tr_s + 1e-9))
-    m_di = 100 * (pd.Series(m_dm, index=df.index).rolling(14).sum() / (tr_s + 1e-9))
-    dx = 100 * (p_di - m_di).abs() / (p_di + m_di + 1e-9)
-    df['adx'] = dx.rolling(14).mean()
-    
-    df['vol_ma'] = df['volume'].rolling(20).mean()
-    df['forte_volume'] = df['volume'] > (df['vol_ma'] * 1.5)
-    
-    return df
-
-def executar_scanner():
-    if estado_bot["em_execucao"]:
+def processar_passo():
+    """ Executa um único passo da varredura a cada atualização do site """
+    if not estado_bot["rodando"]:
         return
+
+    idx = estado_bot["indice_moeda"]
+    par = universo_cripto[idx]
     
-    estado_bot["em_execucao"] = True
     try:
-        adicionar_log("🔍 A iniciar varredura do mercado em tempo real...")
-        
-        # Leitura do Bitcoin (Filtro Macro)
-        adicionar_log("📊 A verificar tendência macro (BTC/USDT)...")
-        df_btc = buscar_dados('BTC/USDT')
-        if df_btc is None:
-            adicionar_log("⚠️ Falha de conexão com a Binance. A tentar na próxima rodada.")
-            estado_bot["em_execucao"] = False
-            return
-            
-        df_btc = calcular_indicadores(df_btc)
-        btc_close = df_btc['close'].iloc[-1]
-        btc_ema200 = df_btc['ema_200'].iloc[-1]
-        
-        if btc_close < btc_ema200:
-            adicionar_log(f"🛑 [TRAVA MACRO ATIVA] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Nenhuma compra será realizada nesta rodada.")
-            estado_bot["em_execucao"] = False
-            return
-        else:
-            adicionar_log(f"✅ Mercado favorável (BTC/USDT a ${btc_close:.2f} acima da EMA200).")
-
-        if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
-            adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar operações.")
-            estado_bot["em_execucao"] = False
-            return
-
-        candidatos = []
-        adicionar_log(f"🔎 A analisar {len(universo_cripto)} paridades...")
-        
-        for par in universo_cripto:
-            if not estado_bot["rodando"]:
-                adicionar_log("⏹️ Varredura interrompida pelo utilizador.")
-                break
-                
-            if par in estado_bot["posicoes_ativas"]:
-                continue
-                
-            df = buscar_dados(par)
-            if df is None or len(df) < 200:
-                continue
-                
-            df_ind = calcular_indicadores(df)
-            row = df_ind.iloc[-1]
-            
-            gatilho = (
-                row['close'] > row['ema_200'] and
-                row['ema_9'] > row['ema_21'] and
-                row['adx'] >= 28 and
-                55 <= row['rsi'] <= 70 and
-                row['forte_volume']
-            )
-            
-            if gatilho:
-                candidatos.append({
-                    'par': par,
-                    'preco': float(row['close']),
-                    'adx': float(row['adx']),
-                    'stop': float(row['close'] - (row['atr'] * 2.0)),
-                    'target': float(row['close'] + (row['atr'] * 4.5))
-                })
-
-        if candidatos:
-            candidatos.sort(key=lambda x: x['adx'], reverse=True)
-            escolhido = candidatos[0]
-            estado_bot["posicoes_ativas"][escolhido['par']] = escolhido
-            p = escolhido['preco']
-            st = escolhido['stop']
-            tg = escolhido['target']
-            par_nome = escolhido['par']
-            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}"
-            adicionar_log(msg_log)
-        else:
-            adicionar_log("✅ Varredura concluída: Nenhuma oportunidade encontrada nesta rodada.")
-            
+        ticker = exchange.fetch_ticker(par)
+        preco = ticker['last']
+        adicionar_log(f"🔍 Analisado {par} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
     except Exception as e:
-        adicionar_log(f"⚠️ Erro durante a varredura: {str(e)}")
-    finally:
-        estado_bot["em_execucao"] = False
+        adicionar_log(f"⚠️ Erro ao consultar {par}: verificação ignorada")
 
-# ==========================================
-# ENGINE DE SEGUNDO PLANO
-# ==========================================
-def motor_robo():
-    while True:
-        if estado_bot["rodando"] and not estado_bot["em_execucao"]:
-            t = threading.Thread(target=executar_scanner)
-            t.start()
-            t.join(timeout=90)
-            time.sleep(15)  # Intervalo de 15 segundos entre varreduras
-        else:
-            time.sleep(2)
-
-thread_engine = threading.Thread(target=motor_robo, daemon=True)
-thread_engine.start()
+    # Avança para a próxima moeda do universo
+    estado_bot["indice_moeda"] = (idx + 1) % len(universo_cripto)
 
 # ==========================================
 # INTERFACE WEB
@@ -277,7 +145,7 @@ HTML_TEMPLATE = """
         async function iniciar() { await fetch('/api/iniciar', { method: 'POST' }); atualizar(); }
         async function parar() { await fetch('/api/parar', { method: 'POST' }); atualizar(); }
 
-        setInterval(atualizar, 1500);
+        setInterval(atualizar, 3000);
         atualizar();
     </script>
 </body>
@@ -293,12 +161,14 @@ def home():
 
 @app.route('/api/status')
 def status():
+    processar_passo()
     return jsonify(estado_bot)
 
 @app.route('/api/iniciar', methods=['POST'])
 def iniciar():
     if not estado_bot["rodando"]:
         estado_bot["rodando"] = True
+        estado_bot["indice_moeda"] = 0
         adicionar_log("🚀 Comando recebido via Web: Robô INICIADO.")
     return jsonify({"success": True})
 
