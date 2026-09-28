@@ -13,13 +13,18 @@ app = Flask(__name__)
 # ==========================================
 estado_bot = {
     "rodando": False,
+    "em_execucao": False,
     "saldo": 50.00,
     "max_posicoes": 3,
     "posicoes_ativas": {},
     "logs": ["🤖 Servidor Web V3 Crypto-Max iniciado na Nuvem. Aguardando comando..."]
 }
 
-exchange = ccxt.binance({'enableRateLimit': True})
+# Configuração da Exchange com timeout curto
+exchange = ccxt.binance({
+    'enableRateLimit': True,
+    'timeout': 10000
+})
 
 universo_cripto = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
@@ -81,83 +86,97 @@ def calcular_indicadores(df):
     return df
 
 def executar_scanner():
-    adicionar_log("🔍 A iniciar varredura no mercado de criptomoedas...")
-    
-    df_btc = buscar_dados('BTC/USDT')
-    if df_btc is None:
-        adicionar_log("⚠️ Aviso: Falha ao obter dados do BTC/USDT da Binance. A tentar novamente no próximo ciclo.")
+    if estado_bot["em_execucao"]:
         return
+    
+    estado_bot["em_execucao"] = True
+    try:
+        adicionar_log("🔍 A iniciar varredura de mercado...")
         
-    df_btc = calcular_indicadores(df_btc)
-    btc_close = df_btc['close'].iloc[-1]
-    btc_ema200 = df_btc['ema_200'].iloc[-1]
-    
-    if btc_close < btc_ema200:
-        adicionar_log(f"🛑 [TRAVA MACRO ACTIVADA] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Entradas bloqueadas.")
-        return
-
-    if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
-        adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar posições ativas.")
-        return
-
-    candidatos = []
-    adicionar_log(f"📊 A analisar {len(universo_cripto)} paridades selecionadas...")
-    
-    for par in universo_cripto:
-        if not estado_bot["rodando"]:
+        # Leitura do BTC
+        df_btc = buscar_dados('BTC/USDT')
+        if df_btc is None:
+            adicionar_log("⚠️ Não foi possível obter dados do BTC. Tentando na próxima rodada.")
+            estado_bot["em_execucao"] = False
             return
-        if par in estado_bot["posicoes_ativas"]:
-            continue
             
-        df = buscar_dados(par)
-        if df is None or len(df) < 200:
-            continue
-            
-        df_ind = calcular_indicadores(df)
-        row = df_ind.iloc[-1]
+        df_btc = calcular_indicadores(df_btc)
+        btc_close = df_btc['close'].iloc[-1]
+        btc_ema200 = df_btc['ema_200'].iloc[-1]
         
-        gatilho = (
-            row['close'] > row['ema_200'] and
-            row['ema_9'] > row['ema_21'] and
-            row['adx'] >= 28 and
-            55 <= row['rsi'] <= 70 and
-            row['forte_volume']
-        )
-        
-        if gatilho:
-            candidatos.append({
-                'par': par,
-                'preco': float(row['close']),
-                'adx': float(row['adx']),
-                'stop': float(row['close'] - (row['atr'] * 2.0)),
-                'target': float(row['close'] + (row['atr'] * 4.5))
-            })
+        if btc_close < btc_ema200:
+            adicionar_log(f"🛑 [TRAVA MACRO] BTC em baixa (${btc_close:.2f} <${btc_ema200:.2f}). Entradas bloqueadas.")
+            estado_bot["em_execucao"] = False
+            return
 
-    if candidatos:
-        candidatos.sort(key=lambda x: x['adx'], reverse=True)
-        escolhido = candidatos[0]
-        estado_bot["posicoes_ativas"][escolhido['par']] = escolhido
-        p = escolhido['preco']
-        st = escolhido['stop']
-        tg = escolhido['target']
-        par_nome = escolhido['par']
-        msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}"
-        adicionar_log(msg_log)
-    else:
-        adicionar_log("✅ Varredura concluída: Nenhuma oportunidade encontrada com os critérios atuais.")
+        if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
+            adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar posições.")
+            estado_bot["em_execucao"] = False
+            return
+
+        candidatos = []
+        adicionar_log(f"📊 Verificando {len(universo_cripto)} pares de moedas...")
+        
+        for index, par in enumerate(universo_cripto, 1):
+            if not estado_bot["rodando"]:
+                adicionar_log("⏹️ Varredura interrompida pelo usuário.")
+                break
+                
+            if par in estado_bot["posicoes_ativas"]:
+                continue
+                
+            df = buscar_dados(par)
+            if df is None or len(df) < 200:
+                continue
+                
+            df_ind = calcular_indicadores(df)
+            row = df_ind.iloc[-1]
+            
+            gatilho = (
+                row['close'] > row['ema_200'] and
+                row['ema_9'] > row['ema_21'] and
+                row['adx'] >= 28 and
+                55 <= row['rsi'] <= 70 and
+                row['forte_volume']
+            )
+            
+            if gatilho:
+                candidatos.append({
+                    'par': par,
+                    'preco': float(row['close']),
+                    'adx': float(row['adx']),
+                    'stop': float(row['close'] - (row['atr'] * 2.0)),
+                    'target': float(row['close'] + (row['atr'] * 4.5))
+                })
+
+        if candidatos:
+            candidatos.sort(key=lambda x: x['adx'], reverse=True)
+            escolhido = candidatos[0]
+            estado_bot["posicoes_ativas"][escolhido['par']] = escolhido
+            p = escolhido['preco']
+            st = escolhido['stop']
+            tg = escolhido['target']
+            par_nome = escolhido['par']
+            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}"
+            adicionar_log(msg_log)
+        else:
+            adicionar_log("✅ Varredura concluída: Nenhuma oportunidade identificada neste ciclo.")
+            
+    except Exception as e:
+        adicionar_log(f"⚠️ Erro durante a varredura: {str(e)}")
+    finally:
+        estado_bot["em_execucao"] = False
 
 # ==========================================
 # ENGINE DE SEGUNDO PLANO (THREAD)
 # ==========================================
 def motor_robo():
     while True:
-        if estado_bot["rodando"]:
-            executar_scanner()
-            # Aguarda 60 segundos antes da próxima varredura
-            for _ in range(60):
-                if not estado_bot["rodando"]:
-                    break
-                time.sleep(1)
+        if estado_bot["rodando"] and not estado_bot["em_execucao"]:
+            t = threading.Thread(target=executar_scanner)
+            t.start()
+            t.join(timeout=120)  # Limite máximo de 2 minutos por ciclo
+            time.sleep(30)       # Aguarda 30 segundos antes do próximo ciclo
         else:
             time.sleep(2)
 
