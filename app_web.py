@@ -20,23 +20,22 @@ estado_bot = {
     "logs": ["🤖 Servidor Web V3 Crypto-Max iniciado na Nuvem. Aguardando comando..."]
 }
 
-# Configuração da Exchange com timeout para evitar travamentos
+# Configuração da Exchange com timeout rápido para não travar
 exchange = ccxt.binance({
     'enableRateLimit': True,
-    'timeout': 10000
+    'timeout': 7000
 })
 
 universo_cripto = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
     'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT', 'SUI/USDT',
-    'FET/USDT', 'RENDER/USDT', 'INJ/USDT', 'OP/USDT', 'ARB/USDT',
-    'MATIC/USDT', 'ATOM/USDT', 'AAVE/USDT', 'LTC/USDT', 'BCH/USDT'
+    'FET/USDT', 'RENDER/USDT', 'INJ/USDT', 'OP/USDT', 'ARB/USDT'
 ]
 
 def adicionar_log(msg):
     timestamp = time.strftime("[%H:%M:%S]")
     estado_bot["logs"].append(f"{timestamp} {msg}")
-    if len(estado_bot["logs"]) > 60:
+    if len(estado_bot["logs"]) > 80:
         estado_bot["logs"].pop(0)
 
 # ==========================================
@@ -49,7 +48,7 @@ def buscar_dados(simbolo, timeframe='1h', limit=200):
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         df.set_index('timestamp', inplace=True)
         return df
-    except Exception as e:
+    except Exception:
         return None
 
 def calcular_indicadores(df):
@@ -91,12 +90,13 @@ def executar_scanner():
     
     estado_bot["em_execucao"] = True
     try:
-        adicionar_log("🔍 A iniciar varredura de mercado...")
+        adicionar_log("🔍 A iniciar varredura do mercado em tempo real...")
         
-        # Leitura e análise do Bitcoin (Filtro Macro)
+        # Leitura do Bitcoin (Filtro Macro)
+        adicionar_log("📊 A verificar tendência macro (BTC/USDT)...")
         df_btc = buscar_dados('BTC/USDT')
         if df_btc is None:
-            adicionar_log("⚠️ Falha ao obter dados do BTC. A tentar novamente na próxima rodada.")
+            adicionar_log("⚠️ Falha de conexão com a Binance. A tentar na próxima rodada.")
             estado_bot["em_execucao"] = False
             return
             
@@ -105,17 +105,19 @@ def executar_scanner():
         btc_ema200 = df_btc['ema_200'].iloc[-1]
         
         if btc_close < btc_ema200:
-            adicionar_log(f"🛑 [TRAVA MACRO ACTIVADA] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Operações bloqueadas.")
+            adicionar_log(f"🛑 [TRAVA MACRO ATIVA] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Nenhuma compra será realizada nesta rodada.")
             estado_bot["em_execucao"] = False
             return
+        else:
+            adicionar_log(f"✅ Mercado favorável (BTC/USDT a ${btc_close:.2f} acima da EMA200).")
 
         if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
-            adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar posições abertas.")
+            adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar operações.")
             estado_bot["em_execucao"] = False
             return
 
         candidatos = []
-        adicionar_log(f"📊 A analisar {len(universo_cripto)} paridades selecionadas...")
+        adicionar_log(f"🔎 A analisar {len(universo_cripto)} paridades...")
         
         for par in universo_cripto:
             if not estado_bot["rodando"]:
@@ -157,26 +159,26 @@ def executar_scanner():
             st = escolhido['stop']
             tg = escolhido['target']
             par_nome = escolhido['par']
-            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}"
+            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}"
             adicionar_log(msg_log)
         else:
-            adicionar_log("✅ Varredura concluída: Nenhuma oportunidade encontrada dentro dos parâmetros atuais.")
+            adicionar_log("✅ Varredura concluída: Nenhuma oportunidade encontrada nesta rodada.")
             
     except Exception as e:
-        adicionar_log(f"⚠️ Erro durante a execução da varredura: {str(e)}")
+        adicionar_log(f"⚠️ Erro durante a varredura: {str(e)}")
     finally:
         estado_bot["em_execucao"] = False
 
 # ==========================================
-# ENGINE DE SEGUNDO PLANO (THREAD)
+# ENGINE DE SEGUNDO PLANO
 # ==========================================
 def motor_robo():
     while True:
         if estado_bot["rodando"] and not estado_bot["em_execucao"]:
             t = threading.Thread(target=executar_scanner)
             t.start()
-            t.join(timeout=120)  # Limite máximo de 2 minutos por ciclo
-            time.sleep(30)       # Intervalo de 30 segundos entre varreduras
+            t.join(timeout=90)
+            time.sleep(15)  # Intervalo de 15 segundos entre varreduras
         else:
             time.sleep(2)
 
@@ -184,7 +186,7 @@ thread_engine = threading.Thread(target=motor_robo, daemon=True)
 thread_engine.start()
 
 # ==========================================
-# INTERFACE WEB (HTML + CSS + JS)
+# INTERFACE WEB
 # ==========================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -194,7 +196,7 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>V3 Crypto-Max | Dashboard Web</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; }
         .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 15px; margin-bottom: 20px; }
         .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px; }
@@ -208,9 +210,9 @@ HTML_TEMPLATE = """
         .btn-stop { background-color: #ef4444; color: #450a0a; }
         .btn-stop:hover { background-color: #dc2626; }
         .terminal-container { background-color: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; }
-        .terminal-header { font-size: 14px; font-weight: bold; color: #94a3b8; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-        .terminal { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; height: 350px; overflow-y: auto; color: #38bdf8; font-size: 13px; line-height: 1.6; }
-        .log-line { border-bottom: 1px solid #0f172a; padding: 2px 0; }
+        .terminal-header { font-size: 14px; font-weight: bold; color: #94a3b8; margin-bottom: 10px; }
+        .terminal { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; height: 350px; overflow-y: auto; color: #38bdf8; font-size: 13px; line-height: 1.6; }
+        .log-line { border-bottom: 1px solid #0f172a; padding: 3px 0; }
     </style>
 </head>
 <body>
@@ -223,7 +225,7 @@ HTML_TEMPLATE = """
         <div class="card-grid">
             <div class="card">
                 <h3>Saldo Reinvestido</h3>
-                <div class="value" id="saldo">R$ 50,00</div>
+                <div class="value" id="saldo">R$ 50.00</div>
             </div>
             <div class="card">
                 <h3>Posições Abertas</h3>
@@ -268,14 +270,14 @@ HTML_TEMPLATE = """
                 terminal.innerHTML = data.logs.map(log => `<div class="log-line">${log}</div>`).join('');
                 terminal.scrollTop = terminal.scrollHeight;
             } catch (e) {
-                console.error("Erro ao atualizar o painel:", e);
+                console.error("Erro ao atualizar terminal:", e);
             }
         }
 
         async function iniciar() { await fetch('/api/iniciar', { method: 'POST' }); atualizar(); }
         async function parar() { await fetch('/api/parar', { method: 'POST' }); atualizar(); }
 
-        setInterval(atualizar, 2000);
+        setInterval(atualizar, 1500);
         atualizar();
     </script>
 </body>
@@ -283,7 +285,7 @@ HTML_TEMPLATE = """
 """
 
 # ==========================================
-# ROTAS DA API WEB
+# ROTAS DA API
 # ==========================================
 @app.route('/')
 def home():
@@ -307,9 +309,6 @@ def parar():
         adicionar_log("🛑 Comando recebido via Web: Robô PARADO.")
     return jsonify({"success": True})
 
-# ==========================================
-# INICIALIZAÇÃO ADAPTADA PARA O RENDER
-# ==========================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
