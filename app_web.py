@@ -81,11 +81,11 @@ def calcular_indicadores(df):
     return df
 
 def executar_scanner():
-    adicionar_log("🔍 Escaneando as 20 moedas no mercado...")
+    adicionar_log("🔍 A iniciar varredura no mercado de criptomoedas...")
     
     df_btc = buscar_dados('BTC/USDT')
     if df_btc is None:
-        adicionar_log("⚠️ Erro de conexão ao buscar BTC na Binance.")
+        adicionar_log("⚠️ Aviso: Falha ao obter dados do BTC/USDT da Binance. A tentar novamente no próximo ciclo.")
         return
         
     df_btc = calcular_indicadores(df_btc)
@@ -93,14 +93,16 @@ def executar_scanner():
     btc_ema200 = df_btc['ema_200'].iloc[-1]
     
     if btc_close < btc_ema200:
-        adicionar_log(f"🛑 [TRAVA MACRO] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Novas entradas bloqueadas.")
+        adicionar_log(f"🛑 [TRAVA MACRO ACTIVADA] BTC em tendência de baixa (${btc_close:.2f} <${btc_ema200:.2f}). Entradas bloqueadas.")
         return
 
     if len(estado_bot["posicoes_ativas"]) >= estado_bot["max_posicoes"]:
-        adicionar_log("🔒 Limite máximo de 3 posições simultâneas mantido. Monitorando posições abertas.")
+        adicionar_log("🔒 Limite máximo de 3 posições atingido. A monitorizar posições ativas.")
         return
 
     candidatos = []
+    adicionar_log(f"📊 A analisar {len(universo_cripto)} paridades selecionadas...")
+    
     for par in universo_cripto:
         if not estado_bot["rodando"]:
             return
@@ -139,10 +141,10 @@ def executar_scanner():
         st = escolhido['stop']
         tg = escolhido['target']
         par_nome = escolhido['par']
-        msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}"
+        msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}"
         adicionar_log(msg_log)
     else:
-        adicionar_log("✅ Escaneamento concluído: Mercado sem oportunidades dentro do filtro no momento.")
+        adicionar_log("✅ Varredura concluída: Nenhuma oportunidade encontrada com os critérios atuais.")
 
 # ==========================================
 # ENGINE DE SEGUNDO PLANO (THREAD)
@@ -151,7 +153,8 @@ def motor_robo():
     while True:
         if estado_bot["rodando"]:
             executar_scanner()
-            for _ in range(3600):
+            # Aguarda 60 segundos antes da próxima varredura
+            for _ in range(60):
                 if not estado_bot["rodando"]:
                     break
                 time.sleep(1)
@@ -253,7 +256,7 @@ HTML_TEMPLATE = """
         async function iniciar() { await fetch('/api/iniciar', { method: 'POST' }); atualizar(); }
         async function parar() { await fetch('/api/parar', { method: 'POST' }); atualizar(); }
 
-        setInterval(atualizar, 3000);
+        setInterval(atualizar, 2000);
         atualizar();
     </script>
 </body>
@@ -273,14 +276,16 @@ def status():
 
 @app.route('/api/iniciar', methods=['POST'])
 def iniciar():
-    estado_bot["rodando"] = True
-    adicionar_log("🚀 Comando recebido via Web: Robô INICIADO.")
+    if not estado_bot["rodando"]:
+        estado_bot["rodando"] = True
+        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO.")
     return jsonify({"success": True})
 
 @app.route('/api/parar', methods=['POST'])
 def parar():
-    estado_bot["rodando"] = False
-    adicionar_log("🛑 Comando recebido via Web: Robô PARADO.")
+    if estado_bot["rodando"]:
+        estado_bot["rodando"] = False
+        adicionar_log("🛑 Comando recebido via Web: Robô PARADO.")
     return jsonify({"success": True})
 
 # ==========================================
