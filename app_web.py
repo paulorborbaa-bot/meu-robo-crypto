@@ -1,7 +1,7 @@
 import os
 import time
+import requests
 from flask import Flask, render_template_string, jsonify
-import ccxt
 
 app = Flask(__name__)
 
@@ -17,16 +17,11 @@ estado_bot = {
     "indice_moeda": 0
 }
 
-# Inicialização simplificada da Binance
-exchange = ccxt.binance({
-    'enableRateLimit': True,
-    'timeout': 5000
-})
-
+# Lista de pares para varredura
 universo_cripto = [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-    'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT', 'SUI/USDT',
-    'FET/USDT', 'RENDER/USDT', 'INJ/USDT', 'OP/USDT', 'ARB/USDT'
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+    'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'NEARUSDT', 'SUIUSDT',
+    'FETUSDT', 'RENDERUSDT', 'INJUSDT', 'OPUSDT', 'ARBUSDT'
 ]
 
 def adicionar_log(msg):
@@ -35,20 +30,42 @@ def adicionar_log(msg):
     if len(estado_bot["logs"]) > 50:
         estado_bot["logs"].pop(0)
 
+def buscar_preco_api(simbolo):
+    """ Consulta o preço usando a API pública e direta da Binance via HTTPS """
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={simbolo}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=4)
+        if response.status_code == 200:
+            data = response.json()
+            return float(data['price'])
+        else:
+            # Fallback para API alternativa caso a principal retorne bloqueio
+            url_alt = f"https://api1.binance.com/api/v3/ticker/price?symbol={simbolo}"
+            resp_alt = requests.get(url_alt, headers=headers, timeout=4)
+            if resp_alt.status_code == 200:
+                return float(resp_alt.json()['price'])
+    except Exception:
+        pass
+    return None
+
 def processar_passo():
-    """ Executa um único passo da varredura a cada atualização do site """
+    """ Executa a varredura a cada atualização da página """
     if not estado_bot["rodando"]:
         return
 
     idx = estado_bot["indice_moeda"]
     par = universo_cripto[idx]
+    par_formatado = f"{par[:-4]}/{par[-4:]}"
     
-    try:
-        ticker = exchange.fetch_ticker(par)
-        preco = ticker['last']
-        adicionar_log(f"🔍 Analisado {par} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
-    except Exception as e:
-        adicionar_log(f"⚠️ Erro ao consultar {par}: verificação ignorada")
+    preco = buscar_preco_api(par)
+    
+    if preco is not None:
+        adicionar_log(f"🔍 Analisado {par_formatado} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
+    else:
+        adicionar_log(f"⚠️ {par_formatado} indisponível momentaneamente. Próximo par...")
 
     # Avança para a próxima moeda do universo
     estado_bot["indice_moeda"] = (idx + 1) % len(universo_cripto)
@@ -145,7 +162,7 @@ HTML_TEMPLATE = """
         async function iniciar() { await fetch('/api/iniciar', { method: 'POST' }); atualizar(); }
         async function parar() { await fetch('/api/parar', { method: 'POST' }); atualizar(); }
 
-        setInterval(atualizar, 3000);
+        setInterval(atualizar, 2500);
         atualizar();
     </script>
 </body>
