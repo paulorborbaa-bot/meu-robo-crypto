@@ -1,7 +1,6 @@
 import os
 import time
-import requests
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request
 
 app = Flask(__name__)
 
@@ -20,8 +19,7 @@ estado_bot = {
 # Lista de pares para varredura
 universo_cripto = [
     'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
-    'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'NEARUSDT', 'SUIUSDT',
-    'FETUSDT', 'RENDERUSDT', 'INJUSDT', 'OPUSDT', 'ARBUSDT'
+    'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'NEARUSDT', 'SUIUSDT'
 ]
 
 def adicionar_log(msg):
@@ -30,48 +28,8 @@ def adicionar_log(msg):
     if len(estado_bot["logs"]) > 50:
         estado_bot["logs"].pop(0)
 
-def buscar_preco_api(simbolo):
-    """ Consulta o preço usando a API pública e direta da Binance via HTTPS """
-    url = f"https://api.binance.com/api/v3/ticker/price?symbol={simbolo}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-    }
-    try:
-        response = requests.get(url, headers=headers, timeout=4)
-        if response.status_code == 200:
-            data = response.json()
-            return float(data['price'])
-        else:
-            # Fallback para API alternativa caso a principal retorne bloqueio
-            url_alt = f"https://api1.binance.com/api/v3/ticker/price?symbol={simbolo}"
-            resp_alt = requests.get(url_alt, headers=headers, timeout=4)
-            if resp_alt.status_code == 200:
-                return float(resp_alt.json()['price'])
-    except Exception:
-        pass
-    return None
-
-def processar_passo():
-    """ Executa a varredura a cada atualização da página """
-    if not estado_bot["rodando"]:
-        return
-
-    idx = estado_bot["indice_moeda"]
-    par = universo_cripto[idx]
-    par_formatado = f"{par[:-4]}/{par[-4:]}"
-    
-    preco = buscar_preco_api(par)
-    
-    if preco is not None:
-        adicionar_log(f"🔍 Analisado {par_formatado} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
-    else:
-        adicionar_log(f"⚠️ {par_formatado} indisponível momentaneamente. Próximo par...")
-
-    # Avança para a próxima moeda do universo
-    estado_bot["indice_moeda"] = (idx + 1) % len(universo_cripto)
-
 # ==========================================
-# INTERFACE WEB
+# INTERFACE WEB (COM BUSCA NO NAVEGADOR)
 # ==========================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -134,11 +92,57 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        const universo = [
+            'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+            'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'NEARUSDT', 'SUIUSDT'
+        ];
+        let idxMoeda = 0;
+        let botRodando = false;
+
+        async function buscarPrecoCliente(symbol) {
+            try {
+                // Tenta consultar pela Binance via navegador
+                const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    return parseFloat(data.price);
+                }
+            } catch (e) {
+                // Fallback para Coinbase caso a Binance seja bloqueada pelo provedor local
+                try {
+                    const base = symbol.replace('USDT', '-USD');
+                    const resAlt = await fetch(`https://api.coinbase.com/v2/prices/${base}/spot`);
+                    if (resAlt.ok) {
+                        const dataAlt = await resAlt.json();
+                        return parseFloat(dataAlt.data.amount);
+                    }
+                } catch (err) {}
+            }
+            return null;
+        }
+
+        async function loopAnalisar() {
+            if (!botRodando) return;
+
+            const par = universo[idxMoeda];
+            const preco = await buscarPrecoCliente(par);
+
+            // Envia o resultado da análise para o backend
+            await fetch('/api/registrar_analise', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ par: par, preco: preco })
+            });
+
+            idxMoeda = (idxMoeda + 1) % universo.length;
+        }
+
         async function atualizar() {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 
+                botRodando = data.rodando;
                 document.getElementById('saldo').innerText = `R$ ${data.saldo.toFixed(2)}`;
                 document.getElementById('posicoes').innerText = `${Object.keys(data.posicoes_ativas).length} / ${data.max_posicoes}`;
                 
@@ -146,6 +150,7 @@ HTML_TEMPLATE = """
                 if (data.rodando) {
                     statusEl.innerText = "RODANDO";
                     statusEl.style.color = "#22c55e";
+                    await loopAnalisar();
                 } else {
                     statusEl.innerText = "PARADO";
                     statusEl.style.color = "#ef4444";
@@ -178,14 +183,30 @@ def home():
 
 @app.route('/api/status')
 def status():
-    processar_passo()
     return jsonify(estado_bot)
+
+@app.route('/api/registrar_analise', methods=['POST'])
+def registrar_analise():
+    if not estado_bot["rodando"]:
+        return jsonify({"success": False})
+
+    data = request.get_json()
+    par = data.get('par')
+    preco = data.get('preco')
+
+    par_formatado = f"{par[:-4]}/{par[-4:]}"
+
+    if preco is not None:
+        adicionar_log(f"🔍 Analisado {par_formatado} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
+    else:
+        adicionar_log(f"⚠️ Erro ao obter cotacao de {par_formatado}")
+
+    return jsonify({"success": True})
 
 @app.route('/api/iniciar', methods=['POST'])
 def iniciar():
     if not estado_bot["rodando"]:
         estado_bot["rodando"] = True
-        estado_bot["indice_moeda"] = 0
         adicionar_log("🚀 Comando recebido via Web: Robô INICIADO.")
     return jsonify({"success": True})
 
