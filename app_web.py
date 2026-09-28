@@ -10,13 +10,14 @@ app = Flask(__name__)
 estado_bot = {
     "rodando": False,
     "saldo": 50.00,
+    "saldo_inicial": 50.00,
     "max_posicoes": 3,
     "posicoes_ativas": {},
+    "historico_trades": [],
     "logs": ["🤖 Servidor Web V3 Crypto-Max iniciado na Nuvem. Aguardando comando..."],
-    "indice_moeda": 0
+    "stats": {"vitorias": 0, "derrotas": 0}
 }
 
-# Lista de pares para varredura
 universo_cripto = [
     'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
     'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'NEARUSDT', 'SUIUSDT'
@@ -29,7 +30,7 @@ def adicionar_log(msg):
         estado_bot["logs"].pop(0)
 
 # ==========================================
-# INTERFACE WEB (COM BUSCA NO NAVEGADOR)
+# INTERFACE WEB AVANÇADA
 # ==========================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -37,25 +38,36 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V3 Crypto-Max | Dashboard Web</title>
+    <title>V3 Crypto-Max | Dashboard Profissional</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
+        .container { max-width: 1050px; margin: 0 auto; }
         .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 15px; margin-bottom: 20px; }
-        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .card { background-color: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
-        .card h3 { margin: 0 0 10px 0; font-size: 13px; color: #94a3b8; text-transform: uppercase; }
-        .card .value { font-size: 26px; font-weight: bold; color: #38bdf8; }
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .card { background-color: #1e293b; padding: 18px; border-radius: 12px; border: 1px solid #334155; }
+        .card h3 { margin: 0 0 8px 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        .card .value { font-size: 24px; font-weight: bold; color: #38bdf8; }
         .controls { display: flex; gap: 10px; margin-bottom: 20px; }
         .btn { padding: 12px 24px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; transition: 0.2s; }
         .btn-start { background-color: #22c55e; color: #052e16; }
         .btn-start:hover { background-color: #16a34a; }
         .btn-stop { background-color: #ef4444; color: #450a0a; }
         .btn-stop:hover { background-color: #dc2626; }
+        
+        .section-title { font-size: 15px; font-weight: bold; color: #cbd5e1; margin: 20px 0 10px 0; display: flex; align-items: center; gap: 8px; }
+        
+        table { width: 100%; border-collapse: collapse; background-color: #1e293b; border-radius: 10px; overflow: hidden; margin-bottom: 20px; border: 1px solid #334155; }
+        th, td { padding: 12px 15px; text-align: left; font-size: 13px; }
+        th { background-color: #0f172a; color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 11px; }
+        tr:not(:last-child) { border-bottom: 1px solid #334155; }
+        
+        .lucro-positivo { color: #22c55e; font-weight: bold; }
+        .lucro-negativo { color: #ef4444; font-weight: bold; }
+        
         .terminal-container { background-color: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; }
-        .terminal-header { font-size: 14px; font-weight: bold; color: #94a3b8; margin-bottom: 10px; }
-        .terminal { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; height: 350px; overflow-y: auto; color: #38bdf8; font-size: 13px; line-height: 1.6; }
+        .terminal { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; height: 260px; overflow-y: auto; color: #38bdf8; font-size: 13px; line-height: 1.6; }
         .log-line { border-bottom: 1px solid #0f172a; padding: 3px 0; }
+        .empty-row { text-align: center; color: #64748b; font-style: italic; padding: 20px; }
     </style>
 </head>
 <body>
@@ -65,9 +77,10 @@ HTML_TEMPLATE = """
             <span style="font-size: 12px; background: #334155; padding: 4px 8px; border-radius: 4px;">Render Cloud Engine</span>
         </div>
         
+        <!-- CARDS DE METRICAS -->
         <div class="card-grid">
             <div class="card">
-                <h3>Saldo Reinvestido</h3>
+                <h3>Banca Atual</h3>
                 <div class="value" id="saldo">R$ 50.00</div>
             </div>
             <div class="card">
@@ -75,20 +88,61 @@ HTML_TEMPLATE = """
                 <div class="value" id="posicoes">0 / 3</div>
             </div>
             <div class="card">
+                <h3>Taxa de Vitória</h3>
+                <div class="value" id="winrate">0%</div>
+            </div>
+            <div class="card">
                 <h3>Status do Robô</h3>
                 <div class="value" id="status" style="color: #ef4444;">PARADO</div>
             </div>
         </div>
 
+        <!-- CONTROLES -->
         <div class="controls">
             <button class="btn btn-start" onclick="iniciar()">▶️ Iniciar Robô</button>
             <button class="btn btn-stop" onclick="parar()">⏹️ Parar Robô</button>
         </div>
 
+        <!-- TABELA DE POSIÇÕES ATIVAS -->
+        <div class="section-title">📊 Posições em Aberto (PnL ao Vivo)</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Paridade</th>
+                    <th>Preço Entrada</th>
+                    <th>Preço Atual</th>
+                    <th>Stop Loss</th>
+                    <th>Alvo (Take Profit)</th>
+                    <th>Retorno (PnL %)</th>
+                </tr>
+            </thead>
+            <tbody id="tabela-posicoes">
+                <tr><td colspan="6" class="empty-row">Nenhuma posição aberta no momento.</td></tr>
+            </tbody>
+        </table>
+
+        <!-- TERMINAL DE LOGS -->
+        <div class="section-title">📜 Terminal de Operações ao Vivo</div>
         <div class="terminal-container">
-            <div class="terminal-header">📜 Terminal de Operações ao Vivo</div>
             <div class="terminal" id="terminal"></div>
         </div>
+        
+        <!-- HISTÓRICO DE TRADES -->
+        <div class="section-title" style="margin-top: 25px;">🏁 Histórico Recente de Trades</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Paridade</th>
+                    <th>Resultado</th>
+                    <th>Entrada</th>
+                    <th>Saída</th>
+                    <th>Lucro / Prejuízo (R$)</th>
+                </tr>
+            </thead>
+            <tbody id="tabela-historico">
+                <tr><td colspan="5" class="empty-row">Nenhum trade encerrado ainda.</td></tr>
+            </tbody>
+        </table>
     </div>
 
     <script>
@@ -101,14 +155,12 @@ HTML_TEMPLATE = """
 
         async function buscarPrecoCliente(symbol) {
             try {
-                // Tenta consultar pela Binance via navegador
                 const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
                 if (res.ok) {
                     const data = await res.json();
                     return parseFloat(data.price);
                 }
             } catch (e) {
-                // Fallback para Coinbase caso a Binance seja bloqueada pelo provedor local
                 try {
                     const base = symbol.replace('USDT', '-USD');
                     const resAlt = await fetch(`https://api.coinbase.com/v2/prices/${base}/spot`);
@@ -127,7 +179,6 @@ HTML_TEMPLATE = """
             const par = universo[idxMoeda];
             const preco = await buscarPrecoCliente(par);
 
-            // Envia o resultado da análise para o backend
             await fetch('/api/registrar_analise', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -146,6 +197,12 @@ HTML_TEMPLATE = """
                 document.getElementById('saldo').innerText = `R$ ${data.saldo.toFixed(2)}`;
                 document.getElementById('posicoes').innerText = `${Object.keys(data.posicoes_ativas).length} / ${data.max_posicoes}`;
                 
+                // Win Rate
+                const totalTrades = data.stats.vitorias + data.stats.derrotas;
+                const winrate = totalTrades > 0 ? ((data.stats.vitorias / totalTrades) * 100).toFixed(0) : 0;
+                document.getElementById('winrate').innerText = `${winrate}%`;
+
+                // Status
                 const statusEl = document.getElementById('status');
                 if (data.rodando) {
                     statusEl.innerText = "RODANDO";
@@ -156,11 +213,51 @@ HTML_TEMPLATE = """
                     statusEl.style.color = "#ef4444";
                 }
 
+                // Tabela de Posições
+                const posTable = document.getElementById('tabela-posicoes');
+                const posKeys = Object.keys(data.posicoes_ativas);
+                if (posKeys.length === 0) {
+                    posTable.innerHTML = '<tr><td colspan="6" class="empty-row">Nenhuma posição aberta no momento.</td></tr>';
+                } else {
+                    posTable.innerHTML = posKeys.map(k => {
+                        const p = data.posicoes_ativas[k];
+                        const pnlClass = p.pnl >= 0 ? 'lucro-positivo' : 'lucro-negativo';
+                        const sinal = p.pnl >= 0 ? '+' : '';
+                        return `<tr>
+                            <td><b>${p.par}</b></td>
+                            <td>$${p.preco_entrada.toFixed(4)}</td>
+                            <td>$${p.preco_atual.toFixed(4)}</td>
+                            <td style="color:#ef4444;">$${p.stop.toFixed(4)}</td>
+                            <td style="color:#22c55e;">$${p.target.toFixed(4)}</td>
+                            <td class="${pnlClass}">${sinal}${p.pnl.toFixed(2)}%</td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                // Histórico
+                const histTable = document.getElementById('tabela-historico');
+                if (data.historico_trades.length === 0) {
+                    histTable.innerHTML = '<tr><td colspan="5" class="empty-row">Nenhum trade encerrado ainda.</td></tr>';
+                } else {
+                    histTable.innerHTML = data.historico_trades.slice(-5).reverse().map(h => {
+                        const pnlClass = h.lucro >= 0 ? 'lucro-positivo' : 'lucro-negativo';
+                        const sinal = h.lucro >= 0 ? '+' : '';
+                        return `<tr>
+                            <td><b>${h.par}</b></td>
+                            <td>${h.resultado}</td>
+                            <td>$${h.entrada.toFixed(4)}</td>
+                            <td>$${h.saida.toFixed(4)}</td>
+                            <td class="${pnlClass}">${sinal}R$ ${h.lucro.toFixed(2)}</td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                // Terminal
                 const terminal = document.getElementById('terminal');
                 terminal.innerHTML = data.logs.map(log => `<div class="log-line">${log}</div>`).join('');
                 terminal.scrollTop = terminal.scrollHeight;
             } catch (e) {
-                console.error("Erro ao atualizar terminal:", e);
+                console.error("Erro ao atualizar:", e);
             }
         }
 
@@ -197,9 +294,40 @@ def registrar_analise():
     par_formatado = f"{par[:-4]}/{par[-4:]}"
 
     if preco is not None:
-        adicionar_log(f"🔍 Analisado {par_formatado} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
+        # Atualiza o preço atual se estiver em posição aberta
+        if par_formatado in estado_bot["posicoes_ativas"]:
+            pos = estado_bot["posicoes_ativas"][par_formatado]
+            pos["preco_atual"] = preco
+            pos["pnl"] = ((preco - pos["preco_entrada"]) / pos["preco_entrada"]) * 100
+            
+            # Checa Stop Loss
+            if preco <= pos["stop"]:
+                lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
+                estado_bot["saldo"] += lucro_brl
+                estado_bot["stats"]["derrotas"] += 1
+                estado_bot["historico_trades"].append({
+                    "par": par_formatado, "resultado": "🛑 STOP LOSS",
+                    "entrada": pos["preco_entrada"], "saida": preco, "lucro": lucro_brl
+                })
+                adicionar_log(f"🛑 [STOP LOSS ATINGIDO] {par_formatado} fechado a ${preco:.4f} ({lucro_brl:.2f} R$)")
+                del estado_bot["posicoes_ativas"][par_formatado]
+            
+            # Checa Take Profit
+            elif preco >= pos["target"]:
+                lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
+                estado_bot["saldo"] += lucro_brl
+                estado_bot["stats"]["vitorias"] += 1
+                estado_bot["historico_trades"].append({
+                    "par": par_formatado, "resultado": "🎯 TAKE PROFIT",
+                    "entrada": pos["preco_entrada"], "saida": preco, "lucro": lucro_brl
+                })
+                adicionar_log(f"🎯 [ALVO ATINGIDO] {par_formatado} fechado a ${preco:.4f} (+{lucro_brl:.2f} R$)")
+                del estado_bot["posicoes_ativas"][par_formatado]
+
+        else:
+            adicionar_log(f"🔍 Analisado {par_formatado} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
     else:
-        adicionar_log(f"⚠️ Erro ao obter cotacao de {par_formatado}")
+        adicionar_log(f"⚠️ Erro ao obter cotação de {par_formatado}")
 
     return jsonify({"success": True})
 
