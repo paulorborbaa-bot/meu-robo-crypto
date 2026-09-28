@@ -157,7 +157,7 @@ def executar_scanner():
             st = escolhido['stop']
             tg = escolhido['target']
             par_nome = escolhido['par']
-            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} \vert{} Alvo:${tg:.4f}"
+            msg_log = f"🔥 [ENTRADA EXECUTADA] {par_nome} | Entrada: ${p:.4f} | Stop: ${st:.4f} | Alvo: ${tg:.4f}"
             adicionar_log(msg_log)
         else:
             adicionar_log("✅ Varredura concluída: Nenhuma oportunidade identificada neste ciclo.")
