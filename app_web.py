@@ -149,7 +149,6 @@ def motor_robo():
     while True:
         if estado_bot["rodando"]:
             executar_scanner()
-            # Aguarda 1 hora entre varreduras (3600 segundos)
             for _ in range(3600):
                 if not estado_bot["rodando"]:
                     break
@@ -286,6 +285,5 @@ def parar():
 # INICIALIZAÇÃO ADAPTADA PARA O RENDER
 # ==========================================
 if __name__ == '__main__':
-    # O Render exige que a aplicação escute na porta dinâmica fornecida pela variável de ambiente PORT
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
