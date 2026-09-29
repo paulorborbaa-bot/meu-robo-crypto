@@ -362,7 +362,7 @@ def registrar_analise():
                     "target": take_profit,
                     "pnl": 0.0
                 }
-                adicionar_log(f"📈 [COMPRA SCALPING] {par_formatado} a ${preco:.4f} \vert{} Alvo:${take_profit:.4f} (+0.1%)")
+                adicionar_log(f"📈 [COMPRA SCALPING] {par_formatado} a ${preco:.4f} | Alvo: ${take_profit:.4f} (+0.1%)")
             else:
                 adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | RSI: {rsi:.1f}")
     else:
