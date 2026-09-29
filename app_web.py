@@ -38,7 +38,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V3 Crypto-Max | Dashboard Profissional</title>
+    <title>V3 Crypto-Max | Estratégia de Impulso</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .container { max-width: 1050px; margin: 0 auto; }
@@ -74,7 +74,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="header">
             <h2 style="margin:0;">🤖 V3 Crypto-Max Web</h2>
-            <span style="font-size: 12px; background: #334155; padding: 4px 8px; border-radius: 4px;">Render Cloud Engine</span>
+            <span style="font-size: 12px; background: #334155; padding: 4px 8px; border-radius: 4px;">Modo Impulso Ativo</span>
         </div>
         
         <!-- CARDS DE METRICAS -->
@@ -111,8 +111,8 @@ HTML_TEMPLATE = """
                     <th>Paridade</th>
                     <th>Preço Entrada</th>
                     <th>Preço Atual</th>
-                    <th>Stop Loss</th>
-                    <th>Alvo (Take Profit)</th>
+                    <th>Stop Loss (-1.5%)</th>
+                    <th>Alvo (+3.0%)</th>
                     <th>Retorno (PnL %)</th>
                 </tr>
             </thead>
@@ -152,6 +152,9 @@ HTML_TEMPLATE = """
         ];
         let idxMoeda = 0;
         let botRodando = false;
+        
+        // Memória local para guardar histórico de preços e detetar impulsos
+        const historicoPrecos = {};
 
         async function buscarPrecoCliente(symbol) {
             try {
@@ -179,10 +182,20 @@ HTML_TEMPLATE = """
             const par = universo[idxMoeda];
             const preco = await buscarPrecoCliente(par);
 
+            let variacao = 0;
+            if (preco && historicoPrecos[par]) {
+                const precoAnterior = historicoPrecos[par];
+                variacao = ((preco - precoAnterior) / precoAnterior) * 100;
+            }
+            
+            if (preco) {
+                historicoPrecos[par] = preco;
+            }
+
             await fetch('/api/registrar_analise', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ par: par, preco: preco })
+                body: JSON.stringify({ par: par, preco: preco, variacao: variacao })
             });
 
             idxMoeda = (idxMoeda + 1) % universo.length;
@@ -290,17 +303,18 @@ def registrar_analise():
     data = request.get_json()
     par = data.get('par')
     preco = data.get('preco')
+    variacao = data.get('variacao', 0)
 
     par_formatado = f"{par[:-4]}/{par[-4:]}"
 
     if preco is not None:
-        # Atualiza o preço atual se estiver em posição aberta
+        # Se o par já está numa posição aberta, atualiza PnL e verifica Stop/Target
         if par_formatado in estado_bot["posicoes_ativas"]:
             pos = estado_bot["posicoes_ativas"][par_formatado]
             pos["preco_atual"] = preco
             pos["pnl"] = ((preco - pos["preco_entrada"]) / pos["preco_entrada"]) * 100
             
-            # Checa Stop Loss
+            # Checa Stop Loss (-1.5%)
             if preco <= pos["stop"]:
                 lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
                 estado_bot["saldo"] += lucro_brl
@@ -312,7 +326,7 @@ def registrar_analise():
                 adicionar_log(f"🛑 [STOP LOSS ATINGIDO] {par_formatado} fechado a ${preco:.4f} ({lucro_brl:.2f} R$)")
                 del estado_bot["posicoes_ativas"][par_formatado]
             
-            # Checa Take Profit
+            # Checa Take Profit (+3.0%)
             elif preco >= pos["target"]:
                 lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
                 estado_bot["saldo"] += lucro_brl
@@ -324,8 +338,26 @@ def registrar_analise():
                 adicionar_log(f"🎯 [ALVO ATINGIDO] {par_formatado} fechado a ${preco:.4f} (+{lucro_brl:.2f} R$)")
                 del estado_bot["posicoes_ativas"][par_formatado]
 
+        # Se não está aberto, avalia a REGRA DE ENTRADA (Impulso / Variação)
         else:
-            adicionar_log(f"🔍 Analisado {par_formatado} | Preço Atual: ${preco:.4f} | Sem sinal de entrada")
+            total_abertas = len(estado_bot["posicoes_ativas"])
+            
+            # Regra: Variação positiva rápida OU pequena variação acumulada quando houver espaço na carteira
+            if total_abertas < estado_bot["max_posicoes"] and (variacao > 0.05 or variacao < -0.10):
+                stop_loss = preco * 0.985   # -1.5%
+                take_profit = preco * 1.030 # +3.0%
+                
+                estado_bot["posicoes_ativas"][par_formatado] = {
+                    "par": par_formatado,
+                    "preco_entrada": preco,
+                    "preco_atual": preco,
+                    "stop": stop_loss,
+                    "target": take_profit,
+                    "pnl": 0.0
+                }
+                adicionar_log(f"🚀 [COMPRA EXECUTADA] {par_formatado} a ${preco:.4f} | Variação: {variacao:+.2f}%")
+            else:
+                adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | Variação: {variacao:+.2f}%")
     else:
         adicionar_log(f"⚠️ Erro ao obter cotação de {par_formatado}")
 
@@ -335,7 +367,7 @@ def registrar_analise():
 def iniciar():
     if not estado_bot["rodando"]:
         estado_bot["rodando"] = True
-        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO.")
+        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO com Estratégia de Impulso.")
     return jsonify({"success": True})
 
 @app.route('/api/parar', methods=['POST'])
