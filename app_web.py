@@ -38,7 +38,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V3 Crypto-Max | Estratégia RSI + Médias</title>
+    <title>V3 Crypto-Max | Estratégia RSI Scalping (0.1%)</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .container { max-width: 1050px; margin: 0 auto; }
@@ -74,7 +74,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="header">
             <h2 style="margin:0;">🤖 V3 Crypto-Max Web</h2>
-            <span style="font-size: 12px; background: #0284c7; padding: 4px 8px; border-radius: 4px; color: #fff;">Estratégia RSI + Médias</span>
+            <span style="font-size: 12px; background: #0284c7; padding: 4px 8px; border-radius: 4px; color: #fff;">Scalping RSI | Alvo: +0.1% | Stop: -1.5%</span>
         </div>
         
         <!-- CARDS DE METRICAS -->
@@ -112,7 +112,7 @@ HTML_TEMPLATE = """
                     <th>Preço Entrada</th>
                     <th>Preço Atual</th>
                     <th>Stop Loss (-1.5%)</th>
-                    <th>Alvo (+3.0%)</th>
+                    <th>Alvo (+0.1%)</th>
                     <th>Retorno (PnL %)</th>
                 </tr>
             </thead>
@@ -153,11 +153,10 @@ HTML_TEMPLATE = """
         let idxMoeda = 0;
         let botRodando = false;
         
-        // Histórico para cálculo técnico (RSI e Médias)
         const historicoPrecos = {};
 
         function calcularRSI(precos) {
-            if (precos.length < 5) return 50; // Valor neutro padrão até ter histórico
+            if (precos.length < 5) return 50;
             let ganhos = 0;
             let perdas = 0;
             for (let i = 1; i < precos.length; i++) {
@@ -335,7 +334,7 @@ def registrar_analise():
                 adicionar_log(f"🛑 [STOP LOSS] {par_formatado} fechado a ${preco:.4f} ({lucro_brl:.2f} R$)")
                 del estado_bot["posicoes_ativas"][par_formatado]
             
-            # Take Profit (+3.0%)
+            # Take Profit (+0.1%)
             elif preco >= pos["target"]:
                 lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
                 estado_bot["saldo"] += lucro_brl
@@ -344,16 +343,16 @@ def registrar_analise():
                     "par": par_formatado, "resultado": "🎯 TAKE PROFIT",
                     "entrada": pos["preco_entrada"], "saida": preco, "lucro": lucro_brl
                 })
-                adicionar_log(f"🎯 [TAKE PROFIT] {par_formatado} fechado a ${preco:.4f} (+{lucro_brl:.2f} R$)")
+                adicionar_log(f"🎯 [TAKE PROFIT 0.1%] {par_formatado} fechado a ${preco:.4f} (+{lucro_brl:.2f} R$)")
                 del estado_bot["posicoes_ativas"][par_formatado]
 
         else:
             total_abertas = len(estado_bot["posicoes_ativas"])
             
-            # REGRA TÉCNICA: Compra quando o RSI estiver abaixo de 40 (Oportunidade de Compra)
-            if total_abertas < estado_bot["max_posicoes"] and rsi < 40:
+            # REGRA TÉCNICA: Compra quando RSI for menor que 50 (pontos curtos de oportunidade)
+            if total_abertas < estado_bot["max_posicoes"] and rsi < 50:
                 stop_loss = preco * 0.985   # -1.5%
-                take_profit = preco * 1.030 # +3.0%
+                take_profit = preco * 1.001 # +0.1%
                 
                 estado_bot["posicoes_ativas"][par_formatado] = {
                     "par": par_formatado,
@@ -363,9 +362,9 @@ def registrar_analise():
                     "target": take_profit,
                     "pnl": 0.0
                 }
-                adicionar_log(f"📈 [SINAL TÉCNICO] Compra em {par_formatado} a ${preco:.4f} | RSI: {rsi:.1f}")
+                adicionar_log(f"📈 [COMPRA SCALPING] {par_formatado} a ${preco:.4f} \vert{} Alvo:${take_profit:.4f} (+0.1%)")
             else:
-                adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | RSI: {rsi:.1f} (Sem sinal)")
+                adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | RSI: {rsi:.1f}")
     else:
         adicionar_log(f"⚠️ Erro ao obter cotação de {par_formatado}")
 
@@ -375,7 +374,7 @@ def registrar_analise():
 def iniciar():
     if not estado_bot["rodando"]:
         estado_bot["rodando"] = True
-        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO (Estratégia RSI).")
+        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO (Scalping 0.1%).")
     return jsonify({"success": True})
 
 @app.route('/api/parar', methods=['POST'])
