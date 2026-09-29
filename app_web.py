@@ -349,7 +349,7 @@ def registrar_analise():
         else:
             total_abertas = len(estado_bot["posicoes_ativas"])
             
-            # REGRA TÉCNICA: Compra quando RSI for menor que 50 (pontos curtos de oportunidade)
+            # REGRA TÉCNICA: Compra quando RSI < 50
             if total_abertas < estado_bot["max_posicoes"] and rsi < 50:
                 stop_loss = preco * 0.985   # -1.5%
                 take_profit = preco * 1.001 # +0.1%
@@ -366,7 +366,7 @@ def registrar_analise():
             else:
                 adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | RSI: {rsi:.1f}")
     else:
-        adicionar_log(f"⚠️ Erro ao obter cotação de {par_formatado}")
+        adicionar_log(f"⚠️️ Erro ao obter cotação de {par_formatado}")
 
     return jsonify({"success": True})
 
