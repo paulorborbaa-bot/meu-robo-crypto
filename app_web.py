@@ -38,7 +38,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V3 Crypto-Max | Estratégia de Impulso</title>
+    <title>V3 Crypto-Max | Estratégia RSI + Médias</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .container { max-width: 1050px; margin: 0 auto; }
@@ -74,7 +74,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="header">
             <h2 style="margin:0;">🤖 V3 Crypto-Max Web</h2>
-            <span style="font-size: 12px; background: #334155; padding: 4px 8px; border-radius: 4px;">Modo Impulso Ativo</span>
+            <span style="font-size: 12px; background: #0284c7; padding: 4px 8px; border-radius: 4px; color: #fff;">Estratégia RSI + Médias</span>
         </div>
         
         <!-- CARDS DE METRICAS -->
@@ -153,8 +153,22 @@ HTML_TEMPLATE = """
         let idxMoeda = 0;
         let botRodando = false;
         
-        // Memória local para guardar histórico de preços e detetar impulsos
+        // Histórico para cálculo técnico (RSI e Médias)
         const historicoPrecos = {};
+
+        function calcularRSI(precos) {
+            if (precos.length < 5) return 50; // Valor neutro padrão até ter histórico
+            let ganhos = 0;
+            let perdas = 0;
+            for (let i = 1; i < precos.length; i++) {
+                let diff = precos[i] - precos[i-1];
+                if (diff >= 0) ganhos += diff;
+                else perdas += Math.abs(diff);
+            }
+            if (perdas === 0) return 100;
+            let rs = ganhos / perdas;
+            return 100 - (100 / (1 + rs));
+        }
 
         async function buscarPrecoCliente(symbol) {
             try {
@@ -182,20 +196,18 @@ HTML_TEMPLATE = """
             const par = universo[idxMoeda];
             const preco = await buscarPrecoCliente(par);
 
-            let variacao = 0;
-            if (preco && historicoPrecos[par]) {
-                const precoAnterior = historicoPrecos[par];
-                variacao = ((preco - precoAnterior) / precoAnterior) * 100;
-            }
-            
+            let rsi = 50;
             if (preco) {
-                historicoPrecos[par] = preco;
+                if (!historicoPrecos[par]) historicoPrecos[par] = [];
+                historicoPrecos[par].push(preco);
+                if (historicoPrecos[par].length > 14) historicoPrecos[par].shift();
+                rsi = calcularRSI(historicoPrecos[par]);
             }
 
             await fetch('/api/registrar_analise', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ par: par, preco: preco, variacao: variacao })
+                body: JSON.stringify({ par: par, preco: preco, rsi: rsi })
             });
 
             idxMoeda = (idxMoeda + 1) % universo.length;
@@ -210,12 +222,10 @@ HTML_TEMPLATE = """
                 document.getElementById('saldo').innerText = `R$ ${data.saldo.toFixed(2)}`;
                 document.getElementById('posicoes').innerText = `${Object.keys(data.posicoes_ativas).length} / ${data.max_posicoes}`;
                 
-                // Win Rate
                 const totalTrades = data.stats.vitorias + data.stats.derrotas;
                 const winrate = totalTrades > 0 ? ((data.stats.vitorias / totalTrades) * 100).toFixed(0) : 0;
                 document.getElementById('winrate').innerText = `${winrate}%`;
 
-                // Status
                 const statusEl = document.getElementById('status');
                 if (data.rodando) {
                     statusEl.innerText = "RODANDO";
@@ -303,18 +313,17 @@ def registrar_analise():
     data = request.get_json()
     par = data.get('par')
     preco = data.get('preco')
-    variacao = data.get('variacao', 0)
+    rsi = data.get('rsi', 50)
 
     par_formatado = f"{par[:-4]}/{par[-4:]}"
 
     if preco is not None:
-        # Se o par já está numa posição aberta, atualiza PnL e verifica Stop/Target
         if par_formatado in estado_bot["posicoes_ativas"]:
             pos = estado_bot["posicoes_ativas"][par_formatado]
             pos["preco_atual"] = preco
             pos["pnl"] = ((preco - pos["preco_entrada"]) / pos["preco_entrada"]) * 100
             
-            # Checa Stop Loss (-1.5%)
+            # Stop Loss (-1.5%)
             if preco <= pos["stop"]:
                 lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
                 estado_bot["saldo"] += lucro_brl
@@ -323,10 +332,10 @@ def registrar_analise():
                     "par": par_formatado, "resultado": "🛑 STOP LOSS",
                     "entrada": pos["preco_entrada"], "saida": preco, "lucro": lucro_brl
                 })
-                adicionar_log(f"🛑 [STOP LOSS ATINGIDO] {par_formatado} fechado a ${preco:.4f} ({lucro_brl:.2f} R$)")
+                adicionar_log(f"🛑 [STOP LOSS] {par_formatado} fechado a ${preco:.4f} ({lucro_brl:.2f} R$)")
                 del estado_bot["posicoes_ativas"][par_formatado]
             
-            # Checa Take Profit (+3.0%)
+            # Take Profit (+3.0%)
             elif preco >= pos["target"]:
                 lucro_brl = (pos["pnl"] / 100) * (estado_bot["saldo"] / 3)
                 estado_bot["saldo"] += lucro_brl
@@ -335,15 +344,14 @@ def registrar_analise():
                     "par": par_formatado, "resultado": "🎯 TAKE PROFIT",
                     "entrada": pos["preco_entrada"], "saida": preco, "lucro": lucro_brl
                 })
-                adicionar_log(f"🎯 [ALVO ATINGIDO] {par_formatado} fechado a ${preco:.4f} (+{lucro_brl:.2f} R$)")
+                adicionar_log(f"🎯 [TAKE PROFIT] {par_formatado} fechado a ${preco:.4f} (+{lucro_brl:.2f} R$)")
                 del estado_bot["posicoes_ativas"][par_formatado]
 
-        # Se não está aberto, avalia a REGRA DE ENTRADA (Impulso / Variação)
         else:
             total_abertas = len(estado_bot["posicoes_ativas"])
             
-            # Regra: Variação positiva rápida OU pequena variação acumulada quando houver espaço na carteira
-            if total_abertas < estado_bot["max_posicoes"] and (variacao > 0.05 or variacao < -0.10):
+            # REGRA TÉCNICA: Compra quando o RSI estiver abaixo de 40 (Oportunidade de Compra)
+            if total_abertas < estado_bot["max_posicoes"] and rsi < 40:
                 stop_loss = preco * 0.985   # -1.5%
                 take_profit = preco * 1.030 # +3.0%
                 
@@ -355,9 +363,9 @@ def registrar_analise():
                     "target": take_profit,
                     "pnl": 0.0
                 }
-                adicionar_log(f"🚀 [COMPRA EXECUTADA] {par_formatado} a ${preco:.4f} | Variação: {variacao:+.2f}%")
+                adicionar_log(f"📈 [SINAL TÉCNICO] Compra em {par_formatado} a ${preco:.4f} | RSI: {rsi:.1f}")
             else:
-                adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | Variação: {variacao:+.2f}%")
+                adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | RSI: {rsi:.1f} (Sem sinal)")
     else:
         adicionar_log(f"⚠️ Erro ao obter cotação de {par_formatado}")
 
@@ -367,7 +375,7 @@ def registrar_analise():
 def iniciar():
     if not estado_bot["rodando"]:
         estado_bot["rodando"] = True
-        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO com Estratégia de Impulso.")
+        adicionar_log("🚀 Comando recebido via Web: Robô INICIADO (Estratégia RSI).")
     return jsonify({"success": True})
 
 @app.route('/api/parar', methods=['POST'])
