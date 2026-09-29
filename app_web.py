@@ -366,7 +366,7 @@ def registrar_analise():
             else:
                 adicionar_log(f"🔍 Analisado {par_formatado} | Preço: ${preco:.4f} | RSI: {rsi:.1f}")
     else:
-        adicionar_log(f"⚠️️ Erro ao obter cotação de {par_formatado}")
+        adicionar_log(f"⚠️ Erro ao obter cotação de {par_formatado}")
 
     return jsonify({"success": True})
 
